@@ -3,5 +3,7 @@
 /.classpath
 /.project
 /.gradle/
-/gradle.properties
 /libs/
+/build/
+/run/
+*.bak

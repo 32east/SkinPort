@@ -1,11 +1,11 @@
 {
   "modListVersion": 2,
   "modList": [{
-    "modid": "skinport",
-    "name": "SkinPort",
+    "modid": "${modId}",
+    "name": "${modName}",
     "description": "This mod adds rendering support for the new skin format introduced in minecraft 1.8",
-    "version": "${version}",
-    "mcversion": "${mcversion}",
+    "version": "${modVersion}",
+    "mcversion": "${minecraftVersion}",
     "url": "https://github.com/zlainsama/skinport",
     "updateUrl": "",
     "authorList": ["zlainsama"],

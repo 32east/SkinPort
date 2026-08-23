@@ -1,0 +1,9 @@
+version = "1.7.10-v10l"
+
+sourceSets {
+    main {
+        java {
+            exclude "lain/mods/skinport/impl/forge/compat/**"
+        }
+    }
+}
