@@ -4,14 +4,17 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.imageio.ImageIO;
 import lain.mods.skins.api.interfaces.ISkin;
+import lain.mods.skins.api.interfaces.ISkin.Loaded;
 
 public class SkinData implements ISkin
 {
@@ -20,19 +23,7 @@ public class SkinData implements ISkin
     {
         try (InputStream input = new ByteArrayInputStream(data))
         {
-            BufferedImage image = ImageIO.read(input);
-            int w = image.getWidth();
-            int h = image.getHeight();
-            if (w == h * 2)
-                return "default"; // it's actually "legacy", but there will always be a filter to convert them into "default".
-            if (w == h)
-            {
-                int r = Math.max(w / 64, 1);
-                if (((image.getRGB(55 * r, 20 * r) & 0xFF000000) >>> 24) == 0)
-                    return "slim";
-                return "default";
-            }
-            return "unknown";
+            return judgeSkinType(ImageIO.read(input));
         }
         catch (Throwable t)
         {
@@ -44,19 +35,7 @@ public class SkinData implements ISkin
     {
         try (InputStream input = wrapByteBufferAsInputStream(data))
         {
-            BufferedImage image = ImageIO.read(input);
-            int w = image.getWidth();
-            int h = image.getHeight();
-            if (w == h * 2)
-                return "default"; // it's actually "legacy", but there will always be a filter to convert them into "default".
-            if (w == h)
-            {
-                int r = Math.max(w / 64, 1);
-                if (((image.getRGB(55 * r, 20 * r) & 0xFF000000) >>> 24) == 0)
-                    return "slim";
-                return "default";
-            }
-            return "unknown";
+            return judgeSkinType(ImageIO.read(input));
         }
         catch (Throwable t)
         {
@@ -64,11 +43,63 @@ public class SkinData implements ISkin
         }
     }
 
+    public static String judgeSkinType(BufferedImage image)
+    {
+        if (image == null)
+            return "unknown";
+        int w = image.getWidth();
+        int h = image.getHeight();
+        if (w == h * 2)
+            return "default"; // 64x32 legacy; LegacyConversion turns these into default.
+        if (w != h)
+            return "unknown";
+
+        // Slim (Alex) arms are 3px. The 4th column of Steve's right-arm back (x=54..55,
+        // y=20..31 on a 64x64 sheet) is unused on slim skins. Checking only (55,20) for
+        // *fully* transparent pixels mis-detects most modern slim skins as Steve.
+        int r = Math.max(w / 64, 1);
+        int opaque = 0;
+        int total = 0;
+        for (int y = 20 * r; y < 32 * r && y < h; y++)
+        {
+            for (int x = 54 * r; x < 56 * r && x < w; x++)
+            {
+                total++;
+                if (((image.getRGB(x, y) >> 24) & 0xFF) >= 128)
+                    opaque++;
+            }
+        }
+        if (total == 0)
+            return "default";
+        return (opaque * 4 < total) ? "slim" : "default";
+    }
+
+    public static String judgeSkinType(byte[] data, String modelHint)
+    {
+        String normalized = normalizeModelHint(modelHint);
+        if (normalized != null)
+            return normalized;
+        return judgeSkinType(data);
+    }
+
+    public static String normalizeModelHint(String hint)
+    {
+        if (hint == null || hint.isEmpty())
+            return null;
+        String t = hint.toLowerCase(Locale.ROOT);
+        if ("slim".equals(t) || "alex".equals(t))
+            return "slim";
+        if ("default".equals(t) || "steve".equals(t) || "classic".equals(t) || "wide".equals(t))
+            return "default";
+        return null;
+    }
+
     public static ByteBuffer toBuffer(byte[] data)
     {
         ByteBuffer buf = ByteBuffer.allocateDirect(data.length).order(ByteOrder.nativeOrder());
         buf.put(data);
-        buf.rewind();
+        // Cast to Buffer so this compiles on JDK 9+ but still calls Buffer.rewind() on Java 8.
+        ((Buffer) buf).rewind();
         return buf;
     }
 
@@ -111,37 +142,81 @@ public class SkinData implements ISkin
         };
     }
 
-    private ByteBuffer data;
-    private String type;
+    // One volatile reference instead of two plain fields: provider threads write while the client
+    // thread renders, and a torn read pairs the new image with the old (or a null) model type.
+    private volatile Loaded loaded;
+    private volatile boolean settled;
+    private volatile boolean fallback;
+    private volatile boolean shared;
     private final Collection<Consumer<ISkin>> listeners = new CopyOnWriteArrayList<>();
     private final Collection<Function<ByteBuffer, ByteBuffer>> filters = new CopyOnWriteArrayList<>();
 
     @Override
     public ByteBuffer getData()
     {
-        return data;
+        Loaded l = loaded;
+        return l == null ? null : l.data;
     }
 
     @Override
     public String getSkinType()
     {
-        return type;
+        Loaded l = loaded;
+        return l == null ? null : l.type;
+    }
+
+    @Override
+    public Loaded loaded()
+    {
+        return loaded;
     }
 
     @Override
     public boolean isDataReady()
     {
-        return data != null;
+        return loaded != null;
+    }
+
+    @Override
+    public boolean isSettled()
+    {
+        return settled || loaded != null;
+    }
+
+    @Override
+    public boolean isFallback()
+    {
+        return fallback;
+    }
+
+    public void markSettled()
+    {
+        settled = true;
+    }
+
+    public SkinData asFallback()
+    {
+        fallback = true;
+        settled = true;
+        // Default Steve/Alex is one instance handed to every player's bundle. Whichever bundle is
+        // dropped first must not null it out for everyone else, and must not delete the single GL
+        // texture they all share - so this instance ignores removal entirely.
+        shared = true;
+        return this;
     }
 
     @Override
     public synchronized void onRemoval()
     {
+        if (shared)
+            return;
+
+        // Notify first: the listeners identify their texture by getData(), so the buffer has to
+        // still be reachable when they run.
         for (Consumer<ISkin> listener : listeners)
             listener.accept(this);
 
-        data = null;
-        type = null;
+        loaded = null;
     }
 
     public synchronized void put(byte[] data, String type)
@@ -155,14 +230,15 @@ public class SkinData implements ISkin
                     break;
         }
 
-        this.data = buf;
-        this.type = type;
+        this.loaded = buf == null ? null : new Loaded(buf, type);
+        this.settled = true;
     }
 
     @Override
     public boolean setRemovalListener(Consumer<ISkin> listener)
     {
-        if (listener == null || listeners.contains(listener))
+        // A shared instance is never removed, so registering here would only grow the list forever.
+        if (shared || listener == null || listeners.contains(listener))
             return false;
         return listeners.add(listener);
     }

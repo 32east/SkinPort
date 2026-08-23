@@ -4,7 +4,6 @@ import java.awt.image.BufferedImage;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import javax.imageio.ImageIO;
 import lain.mods.skins.api.interfaces.ISkinTexture;
@@ -19,7 +18,11 @@ public class CustomSkinTexture extends AbstractTexture implements ISkinTexture
 
     private static BufferedImage loadImage(ByteBuffer buf)
     {
-        try (InputStream in = SkinData.wrapByteBufferAsInputStream(buf))
+        if (buf == null)
+            return null;
+        ByteBuffer view = buf.duplicate();
+        view.rewind();
+        try (InputStream in = SkinData.wrapByteBufferAsInputStream(view))
         {
             return ImageIO.read(in);
         }
@@ -30,20 +33,20 @@ public class CustomSkinTexture extends AbstractTexture implements ISkinTexture
     }
 
     private final ResourceLocation _location;
-    private WeakReference<ByteBuffer> _data;
+    private volatile ByteBuffer _data;
 
     public CustomSkinTexture(ResourceLocation location, ByteBuffer data)
     {
         _location = location;
         if (data == null)
             throw new IllegalArgumentException("buffer must not be null");
-        _data = new WeakReference<ByteBuffer>(data);
+        _data = data;
     }
 
     @Override
     public ByteBuffer getData()
     {
-        return _data.get();
+        return _data;
     }
 
     public ResourceLocation getLocation()
@@ -54,16 +57,23 @@ public class CustomSkinTexture extends AbstractTexture implements ISkinTexture
     @Override
     public void loadTexture(IResourceManager resMan) throws IOException
     {
-        deleteGlTexture();
-
-        ByteBuffer buf;
-        if ((buf = _data.get()) == null) // gc
+        ByteBuffer buf = _data;
+        BufferedImage image = loadImage(buf);
+        if (image == null)
+        {
+            // Keep the already-uploaded GPU texture. Deleting it here (the old
+            // behaviour) allocates a new GL id on the next successful upload and
+            // leaves Angelica / GL-state caches pointing at a recycled id — after
+            // a resource-pack reload that shows the player skin as a fullscreen overlay.
+            if (this.glTextureId != -1)
+                return;
             throw new FileNotFoundException(getLocation().toString());
-        BufferedImage image;
-        if ((image = loadImage(buf)) == null)
-            throw new FileNotFoundException(getLocation().toString());
+        }
 
-        TextureUtil.uploadTextureImageAllocate(getGlTextureId(), image, false, false);
+        if (this.glTextureId == -1)
+            TextureUtil.uploadTextureImageAllocate(getGlTextureId(), image, false, false);
+        else
+            TextureUtil.uploadTextureImage(this.glTextureId, image);
     }
 
 }

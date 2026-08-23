@@ -33,13 +33,20 @@ public class UserManagedCapeProvider implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
-            byte[] data = null;
-            if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
-                data = readFile(_dirU, "%s.png", profile.getPlayerID().toString().replaceAll("-", ""));
-            if (data == null && !Shared.isBlank(profile.getPlayerName()))
-                data = readFile(_dirN, "%s.png", profile.getPlayerName());
-            if (data != null)
-                skin.put(data, "cape");
+            try
+            {
+                byte[] data = null;
+                if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
+                    data = readFile(_dirU, "%s.png", profile.getPlayerID().toString().replaceAll("-", ""));
+                if (data == null && !Shared.isBlank(profile.getPlayerName()))
+                    data = readFile(_dirN, "%s.png", profile.getPlayerName());
+                if (data != null)
+                    skin.put(data, "cape");
+            }
+            finally
+            {
+                skin.markSettled();
+            }
         });
         return skin;
     }

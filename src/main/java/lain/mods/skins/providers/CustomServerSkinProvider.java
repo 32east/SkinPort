@@ -24,24 +24,26 @@ public class CustomServerSkinProvider implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
+            java.util.concurrent.CompletableFuture<?> pending;
             if (Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
             {
-                Shared.downloadSkin(String.format("%s/skins/%s", _host, profile.getPlayerName()), Runnable::run).thenApply(Optional::get).thenAccept(data -> {
-                    if (SkinData.validateData(data))
+                pending = Shared.downloadSkin(String.format("%s/skins/%s", _host, profile.getPlayerName()), Runnable::run).thenApply(opt -> opt.orElse(null)).thenAccept(data -> {
+                    if (data != null && SkinData.validateData(data))
                         skin.put(data, SkinData.judgeSkinType(data));
                 });
             }
             else
             {
-                Shared.downloadSkin(String.format("%s/skins/%s", _host, profile.getPlayerID()), Runnable::run).handle((r, t) -> {
+                pending = Shared.downloadSkin(String.format("%s/skins/%s", _host, profile.getPlayerID()), Runnable::run).handle((r, t) -> {
                     if (r != null && r.isPresent())
                         return CompletableFuture.completedFuture(r);
                     return Shared.downloadSkin(String.format("%s/skins/%s", _host, profile.getPlayerName()), Runnable::run);
-                }).thenCompose(Function.identity()).thenApply(Optional::get).thenAccept(data -> {
-                    if (SkinData.validateData(data))
+                }).thenCompose(Function.identity()).thenApply(opt -> opt.orElse(null)).thenAccept(data -> {
+                    if (data != null && SkinData.validateData(data))
                         skin.put(data, SkinData.judgeSkinType(data));
                 });
             }
+            pending.whenComplete((r, t) -> skin.markSettled());
         });
         return skin;
     }

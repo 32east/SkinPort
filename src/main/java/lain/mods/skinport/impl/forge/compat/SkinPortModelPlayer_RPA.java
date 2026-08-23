@@ -2,7 +2,6 @@ package lain.mods.skinport.impl.forge.compat;
 
 import api.player.model.ModelPlayer;
 import net.minecraft.client.model.ModelRenderer;
-import net.minecraft.entity.Entity;
 
 public class SkinPortModelPlayer_RPA extends ModelPlayer
 {
@@ -72,15 +71,6 @@ public class SkinPortModelPlayer_RPA extends ModelPlayer
         bipedBodyWear = new ModelRenderer(this, 16, 32);
         bipedBodyWear.addBox(-4.0F, 0.0F, -2.0F, 8, 12, 4, z + 0.25F);
         bipedBody.addChild(bipedBodyWear);
-    }
-
-    @Override
-    public void render(Entity p_render_1_, float p_render_2_, float p_render_3_, float p_render_4_, float p_render_5_, float p_render_6_, float p_render_7_)
-    {
-        super.render(p_render_1_, p_render_2_, p_render_3_, p_render_4_, p_render_5_, p_render_6_, p_render_7_);
-
-        if (smallArms)
-            bipedRightArm.rotationPointX += 1.0F;
     }
 
 }

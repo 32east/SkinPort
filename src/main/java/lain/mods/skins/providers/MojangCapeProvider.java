@@ -26,17 +26,28 @@ public class MojangCapeProvider implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
-            if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
+            java.util.concurrent.CompletableFuture<?> pending = null;
+            try
             {
-                Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> textures = MinecraftUtils.getSessionService().getTextures((GameProfile) profile.getOriginal(), false);
-                if (textures != null && textures.containsKey(MinecraftProfileTexture.Type.CAPE))
+                if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
                 {
-                    MinecraftProfileTexture tex = textures.get(MinecraftProfileTexture.Type.CAPE);
-                    Shared.downloadSkin(tex.getUrl(), Runnable::run).thenApply(Optional::get).thenAccept(data -> {
-                        if (SkinData.validateData(data))
-                            skin.put(data, "cape");
-                    });
+                    Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> textures = MinecraftUtils.getSessionService().getTextures((GameProfile) profile.getOriginal(), false);
+                    if (textures != null && textures.containsKey(MinecraftProfileTexture.Type.CAPE))
+                    {
+                        MinecraftProfileTexture tex = textures.get(MinecraftProfileTexture.Type.CAPE);
+                        pending = Shared.downloadSkin(tex.getUrl(), Runnable::run).thenApply(opt -> opt.orElse(null)).thenAccept(data -> {
+                            if (data != null && SkinData.validateData(data))
+                                skin.put(data, "cape");
+                        });
+                    }
                 }
+            }
+            finally
+            {
+                if (pending != null)
+                    pending.whenComplete((r, t) -> skin.markSettled());
+                else
+                    skin.markSettled();
             }
         });
         return skin;

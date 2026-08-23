@@ -23,6 +23,53 @@ public interface ISkin
     boolean isDataReady();
 
     /**
+     * The image and the model type that describes it, as one object.
+     * <p>
+     * Anything that needs both MUST take them from here rather than from separate getData() /
+     * getSkinType() calls: those are two reads of two fields that a provider thread rewrites
+     * while the client thread renders, so they can straddle a write and pair a slim image with
+     * a "default" model - which draws the skin onto wide arms for a few frames.
+     */
+    default Loaded loaded()
+    {
+        ByteBuffer data = getData();
+        return data == null ? null : new Loaded(data, getSkinType());
+    }
+
+    /**
+     * An immutable (image, model type) pair.
+     */
+    final class Loaded
+    {
+
+        public final ByteBuffer data;
+        public final String type;
+
+        public Loaded(ByteBuffer data, String type)
+        {
+            this.data = data;
+            this.type = type;
+        }
+
+    }
+
+    /**
+     * True when this provider has finished (success or fail) and will not receive data later.
+     */
+    default boolean isSettled()
+    {
+        return isDataReady();
+    }
+
+    /**
+     * Last-resort Steve/Alex placeholder. Must not win over a real skin that is still downloading.
+     */
+    default boolean isFallback()
+    {
+        return false;
+    }
+
+    /**
      * Do cleanup when this gets called. <br>
      * Listeners will be notified before anything is done, and then, resources will be released.
      */

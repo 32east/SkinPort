@@ -2,6 +2,7 @@ package lain.mods.skins.impl;
 
 import java.lang.ref.WeakReference;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -242,7 +243,30 @@ public class PlayerProfile implements IPlayerProfile
             return;
         if (profile == null)
             throw new IllegalArgumentException("profile must not be null");
+
+        // Resolving a player runs in several steps (look up by name, then fill), and each step used
+        // to fire a listener and start a full reload - four downloads of the same image in a second.
+        // Only an update that actually changes the skin is worth reloading for.
+        GameProfile current = _profile.get();
+        if (current != null && Objects.equals(current.getId(), profile.getId()))
+        {
+            String currentTextures = Shared.getTextures(current);
+            String newTextures = Shared.getTextures(profile);
+            if (newTextures == null && currentTextures != null)
+            {
+                SkinLog.debug("profile step for %s carries no textures, keeping the ones we have", profile.getName());
+                return;
+            }
+            if (Objects.equals(currentTextures, newTextures))
+            {
+                _profile = new WeakReference<GameProfile>(profile);
+                SkinLog.debug("profile step for %s describes the same skin, not reloading", profile.getName());
+                return;
+            }
+        }
+
         _profile = new WeakReference<GameProfile>(profile);
+        SkinLog.debug("profile updated: %s (%s) properties=%d model=%s", profile.getName(), profile.getId(), profile.getProperties() == null ? 0 : profile.getProperties().size(), Shared.getModelHint(profile));
 
         for (Consumer<IPlayerProfile> l : _listeners)
             l.accept(this);

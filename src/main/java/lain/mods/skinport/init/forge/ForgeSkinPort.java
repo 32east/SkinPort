@@ -23,6 +23,7 @@ import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.api.interfaces.ISkinProvider;
 import lain.mods.skins.impl.LegacyConversion;
 import lain.mods.skins.impl.SkinData;
+import lain.mods.skins.impl.SkinLog;
 import lain.mods.skins.providers.CrafatarCapeProvider;
 import lain.mods.skins.providers.CrafatarSkinProvider;
 import lain.mods.skins.providers.CustomServerCapeProvider;
@@ -36,7 +37,7 @@ import lain.mods.skins.providers.UserManagedSkinProvider;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
 
-@Mod(modid = "skinport", useMetadata = true)
+@Mod(modid = "skinport", useMetadata = true, acceptableRemoteVersions = "*")
 public class ForgeSkinPort
 {
 
@@ -52,7 +53,9 @@ public class ForgeSkinPort
             {
                 byte[] data;
                 ((SkinData) (DefaultSteve = new SkinData())).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultSteve.png")), SkinData.judgeSkinType(data));
+                ((SkinData) DefaultSteve).asFallback();
                 ((SkinData) (DefaultAlex = new SkinData())).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultAlex.png")), SkinData.judgeSkinType(data));
+                ((SkinData) DefaultAlex).asFallback();
             }
             catch (IOException e)
             {
@@ -119,6 +122,7 @@ public class ForgeSkinPort
             loadOptions();
 
             Configuration config = new Configuration(event.getSuggestedConfigurationFile());
+            SkinLog.setEnabled(config.getBoolean("debugLogging", "client", false, "log the skin pipeline (provider results, model/texture resolution, bundle reloads) to the game log"));
             boolean useMojang = config.getBoolean("useMojang", "client", true, "");
             boolean useCrafatar = config.getBoolean("useCrafatar", "client", true, "");
             boolean useCustomServer = config.getBoolean("useCustomServer", "client", false, "");
@@ -151,6 +155,8 @@ public class ForgeSkinPort
                 SkinProviderAPI.CAPE.registerProvider(new MojangCapeProvider());
             if (useCrafatar)
                 SkinProviderAPI.CAPE.registerProvider(new CrafatarCapeProvider());
+
+            SkinLog.debug("providers: userManaged=on mojang=%s crafatar=%s customServer=%s customServer2=%s", useMojang, useCrafatar, useCustomServer, useCustomServer2);
         }
 
         network.registerPacket(1, PacketGet0.class);
@@ -160,6 +166,7 @@ public class ForgeSkinPort
 
         MinecraftForge.EVENT_BUS.register(proxy);
         FMLCommonHandler.instance().bus().register(proxy);
+        proxy.registerReloadListener();
     }
 
 }

@@ -24,16 +24,27 @@ public class CustomServerCapeProvider2 implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
-            if (_host != null && !_host.isEmpty())
+            java.util.concurrent.CompletableFuture<?> pending = null;
+            try
             {
-                String url = replaceValues(_host, profile);
-                if (!_host.equals(url))
+                if (_host != null && !_host.isEmpty())
                 {
-                    Shared.downloadSkin(url, Runnable::run).thenApply(Optional::get).thenAccept(data -> {
-                        if (SkinData.validateData(data))
-                            skin.put(data, "cape");
-                    });
+                    String url = replaceValues(_host, profile);
+                    if (!_host.equals(url))
+                    {
+                        pending = Shared.downloadSkin(url, Runnable::run).thenApply(opt -> opt.orElse(null)).thenAccept(data -> {
+                            if (data != null && SkinData.validateData(data))
+                                skin.put(data, "cape");
+                        });
+                    }
                 }
+            }
+            finally
+            {
+                if (pending != null)
+                    pending.whenComplete((r, t) -> skin.markSettled());
+                else
+                    skin.markSettled();
             }
         });
         return skin;

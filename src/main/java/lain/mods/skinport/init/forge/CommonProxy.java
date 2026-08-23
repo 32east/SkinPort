@@ -11,6 +11,10 @@ import net.minecraft.entity.player.EntityPlayerMP;
 public class CommonProxy
 {
 
+    public void registerReloadListener()
+    {
+    }
+
     @SubscribeEvent
     public void handleEvent(PlayerLoggedInEvent event)
     {

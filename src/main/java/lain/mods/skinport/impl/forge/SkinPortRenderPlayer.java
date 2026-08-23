@@ -5,14 +5,17 @@ import java.util.UUID;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import lain.mods.skinport.impl.forge.network.packet.PacketGet1;
+import lain.mods.skinport.init.forge.ClientProxy;
 import lain.mods.skinport.init.forge.ForgeSkinPort;
 import lain.mods.skins.impl.PlayerProfile;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.model.ModelBiped;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.entity.RenderPlayer;
 import net.minecraft.entity.player.EntityPlayer;
+import org.lwjgl.opengl.GL11;
 
 @SideOnly(Side.CLIENT)
 public class SkinPortRenderPlayer extends RenderPlayer
@@ -33,6 +36,9 @@ public class SkinPortRenderPlayer extends RenderPlayer
     @Override
     public void doRender(AbstractClientPlayer p_76986_1_, double p_76986_2_, double p_76986_4_, double p_76986_6_, float p_76986_8_, float p_76986_9_)
     {
+        if (ClientProxy.shouldSkipFirstPersonPlayer(p_76986_1_))
+            return;
+
         boolean smHeadwear = modelPlayer.bipedHeadwear.showModel;
         boolean smLeftLegwear = modelPlayer.bipedLeftLegwear.showModel;
         boolean smRightLegwear = modelPlayer.bipedRightLegwear.showModel;
@@ -57,7 +63,10 @@ public class SkinPortRenderPlayer extends RenderPlayer
         if (modelPlayer.bipedCloak.showModel)
             modelPlayer.bipedCloak.showModel = SkinCustomization.contains(flags, SkinCustomization.cape);
 
+        GL11.glEnable(GL11.GL_BLEND);
+        OpenGlHelper.glBlendFunc(770, 771, 1, 0);
         super.doRender(p_76986_1_, p_76986_2_, p_76986_4_, p_76986_6_, p_76986_8_, p_76986_9_);
+        GL11.glDisable(GL11.GL_BLEND);
 
         modelPlayer.bipedHeadwear.showModel = smHeadwear;
         modelPlayer.bipedLeftLegwear.showModel = smLeftLegwear;
@@ -149,7 +158,10 @@ public class SkinPortRenderPlayer extends RenderPlayer
             modelPlayer.bipedCloak.showModel = SkinCustomization.contains(flags, SkinCustomization.cape);
 
         modelPlayer.isRiding = modelPlayer.isSneak = false;
+        GL11.glEnable(GL11.GL_BLEND);
+        OpenGlHelper.glBlendFunc(770, 771, 1, 0);
         super.renderFirstPersonArm(player);
+        GL11.glDisable(GL11.GL_BLEND);
 
         modelPlayer.bipedHeadwear.showModel = smHeadwear;
         modelPlayer.bipedLeftLegwear.showModel = smLeftLegwear;

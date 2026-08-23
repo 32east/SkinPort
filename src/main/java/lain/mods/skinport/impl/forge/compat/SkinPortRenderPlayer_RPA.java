@@ -5,6 +5,7 @@ import java.util.UUID;
 import cpw.mods.fml.relauncher.Side;
 import lain.mods.skinport.impl.forge.SkinCustomization;
 import lain.mods.skinport.impl.forge.network.packet.PacketGet1;
+import lain.mods.skinport.init.forge.ClientProxy;
 import lain.mods.skinport.init.forge.ForgeSkinPort;
 import lain.mods.skins.impl.PlayerProfile;
 import net.minecraft.client.Minecraft;
@@ -32,6 +33,9 @@ public class SkinPortRenderPlayer_RPA extends RenderPlayer
     @Override
     public void doRender(AbstractClientPlayer p_76986_1_, double p_76986_2_, double p_76986_4_, double p_76986_6_, float p_76986_8_, float p_76986_9_)
     {
+        if (ClientProxy.shouldSkipFirstPersonPlayer(p_76986_1_))
+            return;
+
         boolean smHeadwear = modelPlayer.bipedHeadwear.showModel;
         boolean smLeftLegwear = modelPlayer.bipedLeftLegwear.showModel;
         boolean smRightLegwear = modelPlayer.bipedRightLegwear.showModel;

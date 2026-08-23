@@ -16,15 +16,19 @@ import java.util.stream.Collectors;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.mojang.authlib.GameProfile;
 import lain.lib.SharedPool;
 import lain.mods.skins.api.interfaces.IPlayerProfile;
 import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.api.interfaces.ISkinProvider;
 import lain.mods.skins.api.interfaces.ISkinProviderService;
+import lain.mods.skins.impl.Shared;
+import lain.mods.skins.impl.SkinLog;
 
 public class SkinProviderAPI
 {
@@ -105,8 +109,19 @@ public class SkinProviderAPI
                 public void onRemoval(RemovalNotification<IPlayerProfile, SkinBundle> notification)
                 {
                     SkinBundle skin = notification.getValue();
-                    if (skin != null)
-                        skin.onRemoval();
+                    if (skin == null)
+                        return;
+                    if (notification.getCause() == RemovalCause.REPLACED)
+                    {
+                        // cache.refresh() stores the very same bundle back, and Guava still reports the
+                        // previous value as REPLACED. Tearing it down here would throw away a perfectly
+                        // good skin - and delete its GL texture - in the middle of every profile update,
+                        // which is exactly when the player is on screen.
+                        SkinLog.debug("keeping %s across a refresh (REPLACED)", SkinLog.id(skin));
+                        return;
+                    }
+                    SkinLog.debug("bundle %s dropped (%s)", SkinLog.id(skin), notification.getCause());
+                    skin.onRemoval();
                 }
 
             }).build(new CacheLoader<IPlayerProfile, SkinBundle>()
@@ -117,16 +132,20 @@ public class SkinProviderAPI
                 {
                     key.setUpdateListener(profileChangeListener);
 
-                    return new SkinBundle().set(providers.stream().map(provider -> {
+                    SkinLog.debug("new bundle for %s (%s), %d provider(s)", key.getPlayerName(), key.getPlayerID(), providers.size());
+                    SkinBundle bundle = new SkinBundle().set(providers.stream().map(provider -> {
                         return provider.getSkin(key);
                     }).filter(skin -> {
                         return skin != null;
                     }).collect(Collectors.toCollection(ArrayList::new)));
+                    bundle.rememberTextures(Shared.getTextures((GameProfile) key.getOriginal()));
+                    return bundle;
                 }
 
                 @Override
                 public ListenableFuture<SkinBundle> reload(IPlayerProfile key, SkinBundle oldValue) throws Exception
                 {
+                    SkinLog.debug("reload %s requested for %s (%s)", SkinLog.id(oldValue), key.getPlayerName(), key.getPlayerID());
                     // Gather new ISkin objects.
                     Collection<ISkin> skins = providers.stream().map(provider -> {
                         return provider.getSkin(key);
@@ -138,11 +157,34 @@ public class SkinProviderAPI
                     reloading.getUnchecked(oldValue).set(token = new Object());
                     long deadline = System.currentTimeMillis() + 10000; // 10 seconds
                     Supplier<Boolean> ready = () -> {
-                        return System.currentTimeMillis() - deadline > 0L || reloading.getUnchecked(oldValue).get() != token || skins.stream().filter(ISkin::isDataReady).findAny().isPresent();
+                        if (System.currentTimeMillis() - deadline > 0L)
+                            return true;
+                        if (reloading.getUnchecked(oldValue).get() != token)
+                            return true;
+                        boolean realReady = skins.stream().anyMatch(s -> !s.isFallback() && s.isDataReady());
+                        if (realReady)
+                            return true;
+                        boolean pending = skins.stream().anyMatch(s -> !s.isFallback() && !s.isSettled());
+                        return !pending;
                     };
                     Runnable update = () -> {
-                        if (reloading.getUnchecked(oldValue).compareAndSet(token, null))
-                            oldValue.set(skins);
+                        if (!reloading.getUnchecked(oldValue).compareAndSet(token, null))
+                            return;
+                        boolean newHasReal = skins.stream().anyMatch(s -> !s.isFallback() && s.isDataReady());
+                        ISkin held = oldValue.resolve();
+                        boolean oldHasReal = held != null && !held.isFallback() && held.isDataReady();
+                        if (!newHasReal && oldHasReal)
+                        {
+                            // The refreshed providers came back empty (offline, rate limited, profile
+                            // without textures...). Swapping now would replace a perfectly good skin
+                            // with Default Steve/Alex, which is exactly the flicker we want to avoid.
+                            SkinLog.debug("reload %s for %s discarded, keeping %s", SkinLog.id(oldValue), key.getPlayerName(), SkinLog.id(held));
+                            skins.forEach(ISkin::onRemoval);
+                            return;
+                        }
+                        SkinLog.debug("reload %s for %s applied, newHasReal=%s", SkinLog.id(oldValue), key.getPlayerName(), newHasReal);
+                        oldValue.set(skins);
+                        oldValue.rememberTextures(Shared.getTextures((GameProfile) key.getOriginal()));
                     };
 
                     if (skins.isEmpty())
@@ -189,8 +231,20 @@ public class SkinProviderAPI
 
             private final List<ISkinProvider> providers = new CopyOnWriteArrayList<>();
             private final Consumer<IPlayerProfile> profileChangeListener = profile -> {
-                if (cache.getIfPresent(profile) != null)
-                    cache.refresh(profile);
+                SkinBundle bundle = cache.getIfPresent(profile);
+                if (bundle == null)
+                    return;
+                // On an offline-mode server the same player is wrapped twice - once from the
+                // server's offline profile, once from the resolved online one - and both wrappers
+                // end up sharing this bundle. Their resolve steps would each rebuild a bundle that
+                // is already built from exactly this skin.
+                String textures = Shared.getTextures((GameProfile) profile.getOriginal());
+                if (bundle.alreadyBuiltFrom(textures))
+                {
+                    SkinLog.debug("bundle %s is already built from these textures, not reloading for %s", SkinLog.id(bundle), profile.getPlayerName());
+                    return;
+                }
+                cache.refresh(profile);
             };
 
             @Override

@@ -10,6 +10,7 @@ import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.api.interfaces.ISkinProvider;
 import lain.mods.skins.impl.Shared;
 import lain.mods.skins.impl.SkinData;
+import lain.mods.skins.impl.SkinLog;
 
 public class UserManagedSkinProvider implements ISkinProvider
 {
@@ -33,13 +34,26 @@ public class UserManagedSkinProvider implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
-            byte[] data = null;
-            if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
-                data = readFile(_dirU, "%s.png", profile.getPlayerID().toString().replaceAll("-", ""));
-            if (data == null && !Shared.isBlank(profile.getPlayerName()))
-                data = readFile(_dirN, "%s.png", profile.getPlayerName());
-            if (data != null)
-                skin.put(data, SkinData.judgeSkinType(data));
+            try
+            {
+                byte[] data = null;
+                if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
+                    data = readFile(_dirU, "%s.png", profile.getPlayerID().toString().replaceAll("-", ""));
+                if (data == null && !Shared.isBlank(profile.getPlayerName()))
+                    data = readFile(_dirN, "%s.png", profile.getPlayerName());
+                if (data != null)
+                {
+                    // A local override is deliberate: judge it on its own pixels, never on the
+                    // model Mojang publishes for that account.
+                    String type = SkinData.judgeSkinType(data);
+                    skin.put(data, type);
+                    SkinLog.debug("usermanaged %s: %s got %d bytes, type=%s", profile.getPlayerName(), SkinLog.id(skin), data.length, type);
+                }
+            }
+            finally
+            {
+                skin.markSettled();
+            }
         });
         return skin;
     }

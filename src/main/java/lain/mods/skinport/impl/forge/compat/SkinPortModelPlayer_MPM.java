@@ -6,7 +6,6 @@ import cpw.mods.fml.relauncher.SideOnly;
 import lain.mods.skinport.impl.forge.SpecialModel;
 import net.minecraft.client.model.ModelBase;
 import net.minecraft.client.model.ModelRenderer;
-import net.minecraft.entity.Entity;
 import noppes.mpm.client.model.Model2DRenderer;
 import noppes.mpm.client.model.ModelMPM;
 import noppes.mpm.client.model.ModelPartInterface;
@@ -173,15 +172,6 @@ public class SkinPortModelPlayer_MPM extends ModelMPM implements SpecialModel
     public int initWidth()
     {
         return 64;
-    }
-
-    @Override
-    public void render(Entity p_render_1_, float p_render_2_, float p_render_3_, float p_render_4_, float p_render_5_, float p_render_6_, float p_render_7_)
-    {
-        super.render(p_render_1_, p_render_2_, p_render_3_, p_render_4_, p_render_5_, p_render_6_, p_render_7_);
-
-        if (smallArms)
-            bipedRightArm.rotationPointX += 1.0F;
     }
 
 }

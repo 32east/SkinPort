@@ -13,6 +13,8 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -26,6 +28,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.minecraft.MinecraftProfileTexture;
+import com.mojang.authlib.properties.Property;
 import lain.lib.Retries;
 import lain.lib.SharedPool;
 import lain.lib.SimpleDownloader;
@@ -136,6 +140,48 @@ public class Shared
         catch (NullPointerException | URISyntaxException e)
         {
             return url;
+        }
+    }
+
+    /**
+     * The raw textures blob a profile carries, or null when it carries none. Two profiles with the
+     * same blob describe the same skin, however many resolve/fill steps it took to get there.
+     */
+    public static String getTextures(GameProfile profile)
+    {
+        if (profile == null || profile.getProperties() == null)
+            return null;
+        Collection<Property> properties = profile.getProperties().get("textures");
+        if (properties == null || properties.isEmpty())
+            return null;
+        return properties.iterator().next().getValue();
+    }
+
+    /**
+     * The authoritative model ("slim" / "default") published by Mojang in the profile's texture
+     * metadata. This is what vanilla itself uses, and it is available as soon as the profile has
+     * been filled - long before any skin image finishes downloading. Purely local: it only decodes
+     * a property that is already attached to the profile, no network access.
+     *
+     * @return "slim", "default", or null when the profile carries no texture metadata yet.
+     */
+    public static String getModelHint(GameProfile profile)
+    {
+        if (profile == null || profile.getProperties() == null || profile.getProperties().isEmpty())
+            return null;
+        try
+        {
+            Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> textures = MinecraftUtils.getSessionService().getTextures(profile, false);
+            if (textures == null)
+                return null;
+            MinecraftProfileTexture skin = textures.get(MinecraftProfileTexture.Type.SKIN);
+            if (skin == null)
+                return null;
+            return SkinData.normalizeModelHint(skin.getMetadata("model"));
+        }
+        catch (Throwable t)
+        {
+            return null;
         }
     }
 

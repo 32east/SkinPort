@@ -22,12 +22,23 @@ public class CrafatarCapeProvider implements ISkinProvider
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {
-            if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
+            java.util.concurrent.CompletableFuture<?> pending = null;
+            try
             {
-                Shared.downloadSkin(String.format("https://crafatar.com/capes/%s", profile.getPlayerID()), Runnable::run).thenApply(Optional::get).thenAccept(data -> {
-                    if (SkinData.validateData(data))
-                        skin.put(data, "cape");
-                });
+                if (!Shared.isOfflinePlayer(profile.getPlayerID(), profile.getPlayerName()))
+                {
+                    pending = Shared.downloadSkin(String.format("https://crafatar.com/capes/%s", profile.getPlayerID()), Runnable::run).thenApply(opt -> opt.orElse(null)).thenAccept(data -> {
+                        if (data != null && SkinData.validateData(data))
+                            skin.put(data, "cape");
+                    });
+                }
+            }
+            finally
+            {
+                if (pending != null)
+                    pending.whenComplete((r, t) -> skin.markSettled());
+                else
+                    skin.markSettled();
             }
         });
         return skin;
