@@ -31,6 +31,9 @@ public class SkinPortRenderPlayer extends RenderPlayer
         mainModel = new SkinPortModelPlayer(0.0F, smallArms);
         modelBipedMain = (ModelBiped) mainModel;
         modelPlayer = (SkinPortModelPlayer) mainModel;
+
+        modelArmor = new SkinPortModelArmor(0.5F, smallArms);
+        modelArmorChestplate = new SkinPortModelArmor(1.0F, smallArms);
     }
 
     @Override
@@ -63,10 +66,10 @@ public class SkinPortRenderPlayer extends RenderPlayer
         if (modelPlayer.bipedCloak.showModel)
             modelPlayer.bipedCloak.showModel = SkinCustomization.contains(flags, SkinCustomization.cape);
 
-        GL11.glEnable(GL11.GL_BLEND);
+        GlCompat.enable(GL11.GL_BLEND);
         OpenGlHelper.glBlendFunc(770, 771, 1, 0);
         super.doRender(p_76986_1_, p_76986_2_, p_76986_4_, p_76986_6_, p_76986_8_, p_76986_9_);
-        GL11.glDisable(GL11.GL_BLEND);
+        GlCompat.disable(GL11.GL_BLEND);
 
         modelPlayer.bipedHeadwear.showModel = smHeadwear;
         modelPlayer.bipedLeftLegwear.showModel = smLeftLegwear;
@@ -158,10 +161,10 @@ public class SkinPortRenderPlayer extends RenderPlayer
             modelPlayer.bipedCloak.showModel = SkinCustomization.contains(flags, SkinCustomization.cape);
 
         modelPlayer.isRiding = modelPlayer.isSneak = false;
-        GL11.glEnable(GL11.GL_BLEND);
+        GlCompat.enable(GL11.GL_BLEND);
         OpenGlHelper.glBlendFunc(770, 771, 1, 0);
         super.renderFirstPersonArm(player);
-        GL11.glDisable(GL11.GL_BLEND);
+        GlCompat.disable(GL11.GL_BLEND);
 
         modelPlayer.bipedHeadwear.showModel = smHeadwear;
         modelPlayer.bipedLeftLegwear.showModel = smLeftLegwear;

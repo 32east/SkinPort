@@ -133,19 +133,23 @@ public class SkinProviderAPI
                     key.setUpdateListener(profileChangeListener);
 
                     SkinLog.debug("new bundle for %s (%s), %d provider(s)", key.getPlayerName(), key.getPlayerID(), providers.size());
-                    SkinBundle bundle = new SkinBundle().set(providers.stream().map(provider -> {
+                    // Deliberately not remembering the textures here: the providers are still
+                    // running, and recording a blob that ends up producing nothing would suppress
+                    // the very reload that would fix it.
+                    return new SkinBundle().set(providers.stream().map(provider -> {
                         return provider.getSkin(key);
                     }).filter(skin -> {
                         return skin != null;
                     }).collect(Collectors.toCollection(ArrayList::new)));
-                    bundle.rememberTextures(Shared.getTextures((GameProfile) key.getOriginal()));
-                    return bundle;
                 }
 
                 @Override
                 public ListenableFuture<SkinBundle> reload(IPlayerProfile key, SkinBundle oldValue) throws Exception
                 {
                     SkinLog.debug("reload %s requested for %s (%s)", SkinLog.id(oldValue), key.getPlayerName(), key.getPlayerID());
+                    // The blob these providers are about to be built from. Captured now, because the
+                    // profile can advance again while the reload waits for them.
+                    final String gatheredFrom = Shared.getTextures((GameProfile) key.getOriginal());
                     // Gather new ISkin objects.
                     Collection<ISkin> skins = providers.stream().map(provider -> {
                         return provider.getSkin(key);
@@ -184,7 +188,11 @@ public class SkinProviderAPI
                         }
                         SkinLog.debug("reload %s for %s applied, newHasReal=%s", SkinLog.id(oldValue), key.getPlayerName(), newHasReal);
                         oldValue.set(skins);
-                        oldValue.rememberTextures(Shared.getTextures((GameProfile) key.getOriginal()));
+                        // Only a blob that actually produced a skin may suppress future reloads;
+                        // otherwise a player whose lookup failed once would stay on Default
+                        // Steve/Alex for the rest of the session.
+                        if (newHasReal)
+                            oldValue.rememberTextures(gatheredFrom);
                     };
 
                     if (skins.isEmpty())

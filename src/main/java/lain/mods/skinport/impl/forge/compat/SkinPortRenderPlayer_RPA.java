@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.UUID;
 import cpw.mods.fml.relauncher.Side;
 import lain.mods.skinport.impl.forge.SkinCustomization;
+import lain.mods.skinport.impl.forge.SkinPortModelArmor;
 import lain.mods.skinport.impl.forge.network.packet.PacketGet1;
 import lain.mods.skinport.init.forge.ClientProxy;
 import lain.mods.skinport.init.forge.ForgeSkinPort;
@@ -28,6 +29,9 @@ public class SkinPortRenderPlayer_RPA extends RenderPlayer
         mainModel = new SkinPortModelPlayer_RPA(0.0F, smallArms);
         modelBipedMain = (ModelBiped) mainModel;
         modelPlayer = (SkinPortModelPlayer_RPA) mainModel;
+
+        modelArmor = new SkinPortModelArmor(0.5F, smallArms);
+        modelArmorChestplate = new SkinPortModelArmor(1.0F, smallArms);
     }
 
     @Override

@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.lwjgl.opengl.GL11;
 import com.mojang.authlib.GameProfile;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
@@ -427,9 +426,12 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
     public void onResourceManagerReload(IResourceManager manager)
     {
         renderers.clear();
-        // Resource reload re-uploads every texture and can leave the last skin bound.
-        // Angelica's GL-state cache then draws HUD/world quads with that skin.
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+        // Nothing here may touch GL directly. A raw glBindTexture(0) used to sit here to clear a
+        // stale binding after a reload; under Angelica it did the opposite - it moved the driver
+        // while Angelica's mirror kept pointing at the old texture, so every later bind of that id
+        // was skipped as redundant and the player was drawn with whatever terrain left bound.
+        // CustomSkinTexture no longer drops its GPU texture on a failed reload, which is what the
+        // stale binding came from in the first place.
     }
 
     public void registerReloadListener()
