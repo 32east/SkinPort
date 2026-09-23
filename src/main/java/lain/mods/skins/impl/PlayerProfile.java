@@ -182,23 +182,44 @@ public class PlayerProfile implements IPlayerProfile
 
     private WeakReference<GameProfile> _profile;
     private final Collection<Consumer<IPlayerProfile>> _listeners = new CopyOnWriteArrayList<>();
+    /**
+     * The id and name the player was first seen with. Equality and the hash stay on these: the
+     * wrapped profile moves on as it gets resolved and filled - an offline id is swapped for the
+     * online one - and a key whose hash moves strands its entry in a hash-based cache. The next
+     * lookup misses, builds a second skin bundle from scratch and downloads everything again,
+     * while the bundle that is actually being updated can no longer be found.
+     */
+    private final UUID _originalId;
+    private final String _originalName;
 
-    private PlayerProfile(GameProfile profile)
+    // Package-private for the unit tests; everything else goes through wrapGameProfile().
+    PlayerProfile(GameProfile profile)
     {
         if (profile == null)
             throw new IllegalArgumentException("profile must not be null");
         _profile = new WeakReference<GameProfile>(profile);
+        _originalId = profile.getId();
+        _originalName = profile.getName();
     }
 
     @Override
     public boolean equals(Object o)
     {
-        GameProfile p;
-        if ((p = _profile.get()) == null) // gc
+        if (this == o)
+            return true;
+        if (!(o instanceof PlayerProfile))
             return false;
-        if (o instanceof PlayerProfile)
-            return p.equals(((PlayerProfile) o)._profile.get());
-        return false;
+        PlayerProfile p = (PlayerProfile) o;
+        return Objects.equals(_originalId, p._originalId) && Objects.equals(_originalName, p._originalName);
+    }
+
+    /**
+     * @return the id the player was first seen with - what the server calls them - however the
+     *         profile has been resolved since.
+     */
+    public UUID getOriginalID()
+    {
+        return _originalId;
     }
 
     @Override
@@ -231,13 +252,10 @@ public class PlayerProfile implements IPlayerProfile
     @Override
     public int hashCode()
     {
-        GameProfile p;
-        if ((p = _profile.get()) == null) // gc
-            return 0;
-        return p.hashCode();
+        return Objects.hash(_originalId, _originalName);
     }
 
-    private synchronized void set(GameProfile profile)
+    synchronized void set(GameProfile profile)
     {
         if (this == DUMMY)
             return;

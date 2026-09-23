@@ -38,6 +38,8 @@ public class SkinLog
     {
         if (o == null)
             return "none";
+        if (o instanceof SkinData)
+            return "SkinData[" + ((SkinData) o).getOrigin() + "]@" + Integer.toHexString(System.identityHashCode(o));
         return o.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(o));
     }
 

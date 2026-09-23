@@ -22,7 +22,7 @@ public class MojangCapeProvider implements ISkinProvider
     @Override
     public ISkin getSkin(IPlayerProfile profile)
     {
-        SkinData skin = new SkinData();
+        SkinData skin = new SkinData("mojang-cape");
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {

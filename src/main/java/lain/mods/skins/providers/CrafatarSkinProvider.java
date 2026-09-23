@@ -19,7 +19,7 @@ public class CrafatarSkinProvider implements ISkinProvider
     @Override
     public ISkin getSkin(IPlayerProfile profile)
     {
-        SkinData skin = new SkinData();
+        SkinData skin = new SkinData("crafatar");
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {

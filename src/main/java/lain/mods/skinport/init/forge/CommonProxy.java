@@ -11,6 +11,14 @@ import net.minecraft.entity.player.EntityPlayerMP;
 public class CommonProxy
 {
 
+    public void keepOwnSkinWarm()
+    {
+    }
+
+    public void registerAutoTest()
+    {
+    }
+
     public void registerReloadListener()
     {
     }

@@ -5,10 +5,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinPool.ManagedBlocker;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -22,7 +21,6 @@ import com.google.common.cache.RemovalNotification;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.mojang.authlib.GameProfile;
-import lain.lib.SharedPool;
 import lain.mods.skins.api.interfaces.IPlayerProfile;
 import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.api.interfaces.ISkinProvider;
@@ -74,6 +72,17 @@ public class SkinProviderAPI
     };
 
     /**
+     * Watches reloads until their new skins are ready. A reload used to wait on a thread of the
+     * download pool, sleeping a second at a time: on a small pool the downloads it waited for were
+     * queued behind it, and every reload cost up to a second after its skin had already arrived.
+     */
+    private static final ScheduledExecutorService reloadWatcher = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "SkinPort reload watcher");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    /**
      * The service for skins.
      */
     public static final ISkinProviderService SKIN = create();
@@ -92,17 +101,10 @@ public class SkinProviderAPI
         return new ISkinProviderService()
         {
 
-            private final LoadingCache<SkinBundle, AtomicReference<Object>> reloading = CacheBuilder.newBuilder().weakKeys().build(new CacheLoader<SkinBundle, AtomicReference<Object>>()
-            {
-
-                @Override
-                public AtomicReference<Object> load(SkinBundle key) throws Exception
-                {
-                    return new AtomicReference<>();
-                }
-
-            });
-            private final LoadingCache<IPlayerProfile, SkinBundle> cache = CacheBuilder.newBuilder().expireAfterAccess(15, TimeUnit.SECONDS).removalListener(new RemovalListener<IPlayerProfile, SkinBundle>()
+            // Kept for minutes, not seconds: a player who walks out of sight and back, or the
+            // local player leaving a world and joining again, should find their skin still here
+            // instead of standing in as Steve while it downloads a second time.
+            private final LoadingCache<IPlayerProfile, SkinBundle> cache = CacheBuilder.newBuilder().expireAfterAccess(10, TimeUnit.MINUTES).removalListener(new RemovalListener<IPlayerProfile, SkinBundle>()
             {
 
                 @Override
@@ -158,12 +160,12 @@ public class SkinProviderAPI
                     }).collect(Collectors.toCollection(ArrayList::new));
                     // Prepare for monitoring.
                     Object token;
-                    reloading.getUnchecked(oldValue).set(token = new Object());
+                    oldValue.reloadToken.set(token = new Object());
                     long deadline = System.currentTimeMillis() + 10000; // 10 seconds
                     Supplier<Boolean> ready = () -> {
                         if (System.currentTimeMillis() - deadline > 0L)
                             return true;
-                        if (reloading.getUnchecked(oldValue).get() != token)
+                        if (oldValue.reloadToken.get() != token)
                             return true;
                         boolean realReady = skins.stream().anyMatch(s -> !s.isFallback() && s.isDataReady());
                         if (realReady)
@@ -172,7 +174,7 @@ public class SkinProviderAPI
                         return !pending;
                     };
                     Runnable update = () -> {
-                        if (!reloading.getUnchecked(oldValue).compareAndSet(token, null))
+                        if (!oldValue.reloadToken.compareAndSet(token, null))
                             return;
                         boolean newHasReal = skins.stream().anyMatch(s -> !s.isFallback() && s.isDataReady());
                         ISkin held = oldValue.resolve();
@@ -201,35 +203,26 @@ public class SkinProviderAPI
                     }
                     else
                     {
-                        ManagedBlocker blocker = new ManagedBlocker()
+                        reloadWatcher.execute(new Runnable()
                         {
 
                             @Override
-                            public boolean block() throws InterruptedException
+                            public void run()
                             {
-                                Thread.sleep(1000); // 1 second
-                                return ready.get();
+                                boolean done = true;
+                                try
+                                {
+                                    done = ready.get();
+                                }
+                                finally
+                                {
+                                    if (done)
+                                        update.run();
+                                    else
+                                        reloadWatcher.schedule(this, 50L, TimeUnit.MILLISECONDS);
+                                }
                             }
 
-                            @Override
-                            public boolean isReleasable()
-                            {
-                                return ready.get();
-                            }
-
-                        };
-                        SharedPool.execute(() -> {
-                            try
-                            {
-                                ForkJoinPool.managedBlock(blocker);
-                            }
-                            catch (InterruptedException e)
-                            {
-                            }
-                            finally
-                            {
-                                update.run();
-                            }
                         });
                     }
                     return Futures.immediateFuture(oldValue);

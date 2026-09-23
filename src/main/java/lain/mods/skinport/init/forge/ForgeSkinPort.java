@@ -22,6 +22,7 @@ import lain.mods.skins.api.interfaces.IPlayerProfile;
 import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.api.interfaces.ISkinProvider;
 import lain.mods.skins.impl.LegacyConversion;
+import lain.mods.skins.impl.PlayerProfile;
 import lain.mods.skins.impl.SkinData;
 import lain.mods.skins.impl.SkinLog;
 import lain.mods.skins.providers.CrafatarCapeProvider;
@@ -52,9 +53,9 @@ public class ForgeSkinPort
             try
             {
                 byte[] data;
-                ((SkinData) (DefaultSteve = new SkinData())).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultSteve.png")), SkinData.judgeSkinType(data));
+                ((SkinData) (DefaultSteve = new SkinData("default-steve"))).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultSteve.png")), SkinData.judgeSkinType(data));
                 ((SkinData) DefaultSteve).asFallback();
-                ((SkinData) (DefaultAlex = new SkinData())).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultAlex.png")), SkinData.judgeSkinType(data));
+                ((SkinData) (DefaultAlex = new SkinData("default-alex"))).put(data = IOUtils.toByteArray(DefaultSkinProvider.class.getResource("/DefaultAlex.png")), SkinData.judgeSkinType(data));
                 ((SkinData) DefaultAlex).asFallback();
             }
             catch (IOException e)
@@ -67,8 +68,11 @@ public class ForgeSkinPort
         @Override
         public ISkin getSkin(IPlayerProfile profile)
         {
-            UUID uuid;
-            if ((uuid = profile.getPlayerID()) != null && (uuid.hashCode() & 0x1) == 1)
+            // Decided by the id the player was first seen with, as 1.8 does with the entity's id.
+            // The current id changes when an offline profile is resolved, and a bundle rebuilt
+            // after that would switch the stand-in from Steve to Alex halfway through the join.
+            UUID uuid = profile instanceof PlayerProfile ? ((PlayerProfile) profile).getOriginalID() : profile.getPlayerID();
+            if (uuid != null && (uuid.hashCode() & 0x1) == 1)
                 return DefaultAlex;
             return DefaultSteve;
         }
@@ -157,6 +161,8 @@ public class ForgeSkinPort
                 SkinProviderAPI.CAPE.registerProvider(new CrafatarCapeProvider());
 
             SkinLog.debug("providers: userManaged=on mojang=%s crafatar=%s customServer=%s customServer2=%s", useMojang, useCrafatar, useCustomServer, useCustomServer2);
+            // Loading the rest of the game takes long enough for the own skin to arrive meanwhile
+            proxy.keepOwnSkinWarm();
         }
 
         network.registerPacket(1, PacketGet0.class);
@@ -167,6 +173,7 @@ public class ForgeSkinPort
         MinecraftForge.EVENT_BUS.register(proxy);
         FMLCommonHandler.instance().bus().register(proxy);
         proxy.registerReloadListener();
+        proxy.registerAutoTest();
     }
 
 }

@@ -146,10 +146,36 @@ public class SkinData implements ISkin
     // thread renders, and a torn read pairs the new image with the old (or a null) model type.
     private volatile Loaded loaded;
     private volatile boolean settled;
+    /** Which provider fills this one ("mojang", "crafatar", "default-steve"...), for logs and the autotest. */
+    private final String origin;
     private volatile boolean fallback;
     private volatile boolean shared;
     private final Collection<Consumer<ISkin>> listeners = new CopyOnWriteArrayList<>();
     private final Collection<Function<ByteBuffer, ByteBuffer>> filters = new CopyOnWriteArrayList<>();
+
+    public SkinData()
+    {
+        this("unknown");
+    }
+
+    public SkinData(String origin)
+    {
+        this.origin = origin;
+    }
+
+    /**
+     * @return the provider this came from, and what it holds right now.
+     */
+    public String describe()
+    {
+        Loaded l = loaded;
+        return origin + (fallback ? " (fallback)" : "") + (l != null ? " " + l.type : settled ? " (nothing)" : " (pending)");
+    }
+
+    public String getOrigin()
+    {
+        return origin;
+    }
 
     @Override
     public ByteBuffer getData()

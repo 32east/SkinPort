@@ -1,19 +1,26 @@
 package lain.lib;
 
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public final class SharedPool {
 
-    private static final ExecutorService thePool = new ThreadPoolExecutor(
-            2,
-            Math.min(Runtime.getRuntime().availableProcessors() * 4, Short.MAX_VALUE),
+    // Core size is the real size: a ThreadPoolExecutor only grows past its core threads when the
+    // queue refuses a task, and an unbounded queue never does. With two core threads every lookup
+    // and every download in the game went through two threads, one request after another.
+    private static final int THREADS = Math.max(4, Math.min(16, Runtime.getRuntime().availableProcessors() * 2));
+    private static final ThreadPoolExecutor thePool = new ThreadPoolExecutor(
+            THREADS,
+            THREADS,
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(),
             SharedPool::newWorker);
+
+    static {
+        thePool.allowCoreThreadTimeOut(true);
+    }
 
     private SharedPool() {
         throw new Error("NoInstance");

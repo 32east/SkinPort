@@ -27,8 +27,14 @@ public class SkinBundle implements ISkin
     /**
      * The ISkin currently on screen. Kept sticky so that a provider finishing later does not
      * yank the texture (and with it the model) out from under a skin that already renders fine.
+     * A default Steve/Alex standing in is never sticky: it gives way to the first real skin.
      */
     private volatile ISkin winner;
+    /**
+     * Non-null while a reload is gathering new skins for this bundle: the token of the latest one.
+     * Owned by the service that reloads it.
+     */
+    public final AtomicReference<Object> reloadToken = new AtomicReference<>();
     /** The textures blob this bundle's providers were pointed at, once it is known. */
     private volatile String textures;
     private volatile boolean texturesKnown;
@@ -58,10 +64,12 @@ public class SkinBundle implements ISkin
     }
 
     /**
-     * @return the single ISkin this bundle currently stands for, or null when nothing is usable
-     *         yet. Callers that need both the image and the model type must read them off this
-     *         one object - reading them through separate getData()/getSkinType() calls can
-     *         straddle a provider completing and mix a texture with the wrong model.
+     * @return the single ISkin this bundle currently stands for: the player's own skin once a
+     *         provider has it, until then the default Steve/Alex for this player (null only when
+     *         there is not even that). Callers that need both the image and the model type must
+     *         read them off this one object - reading them through separate
+     *         getData()/getSkinType() calls can straddle a provider completing and mix a texture
+     *         with the wrong model.
      */
     public ISkin resolve()
     {
@@ -70,12 +78,11 @@ public class SkinBundle implements ISkin
             return null;
 
         ISkin held = winner;
-        if (held != null && held.isDataReady() && contains(skins, held))
+        if (held != null && !held.isFallback() && held.isDataReady() && contains(skins, held))
             return held;
 
         ISkin firstReady = null;
         ISkin fallback = null;
-        boolean pending = false;
         for (ISkin s : skins)
         {
             if (s.isFallback())
@@ -84,24 +91,15 @@ public class SkinBundle implements ISkin
                     fallback = s;
                 continue;
             }
-            if (s.isDataReady())
-            {
-                if (firstReady == null)
-                    firstReady = s;
-            }
-            else if (!s.isSettled())
-            {
-                pending = true;
-            }
+            if (s.isDataReady() && firstReady == null)
+                firstReady = s;
         }
 
-        ISkin picked;
-        if (firstReady != null)
-            picked = firstReady;
-        else if (pending)
-            picked = null; // still downloading - do not drop through to Default Steve/Alex yet
-        else
-            picked = fallback;
+        // While the real skin is still on its way the default Steve/Alex stands in for it. The
+        // alternative - nothing from SkinPort, so vanilla's texture - is worse on every count:
+        // vanilla's textures are 64x32, and drawn on this model they come out mangled (the face
+        // lands on the chest); and it is a Steve all the same, just a broken one.
+        ISkin picked = firstReady != null ? firstReady : fallback;
 
         if (picked != held)
         {
@@ -109,6 +107,20 @@ public class SkinBundle implements ISkin
             SkinLog.debug("bundle %s winner %s -> %s (type=%s)", SkinLog.id(this), SkinLog.id(held), SkinLog.id(picked), picked == null ? "-" : picked.getSkinType());
         }
         return picked;
+    }
+
+    /**
+     * @return true while this bundle may still come up with a real skin: a provider has not
+     *         finished yet, or a reload is gathering new ones.
+     */
+    public boolean isPending()
+    {
+        if (reloadToken.get() != null)
+            return true;
+        for (ISkin s : ref.get())
+            if (!s.isFallback() && !s.isDataReady() && !s.isSettled())
+                return true;
+        return false;
     }
 
     private static boolean contains(Collection<ISkin> skins, ISkin skin)

@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.mojang.authlib.GameProfile;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -24,11 +25,11 @@ import lain.mods.skinport.impl.forge.SkinPortModelHumanoidHead;
 import lain.mods.skinport.impl.forge.SkinPortRenderPlayer;
 import lain.mods.skinport.impl.forge.SpecialModel;
 import lain.mods.skinport.impl.forge.SpecialRenderer;
+import lain.mods.skinport.impl.forge.debug.AutoTest;
 import lain.mods.skins.api.SkinBundle;
 import lain.mods.skins.api.SkinProviderAPI;
 import lain.mods.skins.api.interfaces.ISkin;
 import lain.mods.skins.impl.PlayerProfile;
-import lain.mods.skins.impl.Shared;
 import lain.mods.skins.impl.SkinData;
 import lain.mods.skins.impl.SkinLog;
 import lain.mods.skins.impl.forge.CustomSkinTexture;
@@ -53,6 +54,7 @@ import net.minecraft.tileentity.TileEntitySkull;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import net.minecraftforge.client.MinecraftForgeClient;
+import net.minecraftforge.common.MinecraftForge;
 
 @SideOnly(Side.CLIENT)
 public class ClientProxy extends CommonProxy implements IResourceManagerReloadListener
@@ -74,6 +76,8 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         String type = "default";
         Object source;
         Object renderer;
+        /** Vanilla draws this player, texture and renderer both. */
+        boolean vanilla;
 
     }
 
@@ -83,6 +87,8 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
     private static final SkinPortModelHumanoidHead modelHumanoidHead = new SkinPortModelHumanoidHead();
     private static final ResourceLocation VANILLA_DEFAULT_SKIN = new ResourceLocation("textures/entity/steve.png");
     private static boolean reloadListenerRegistered;
+    /** The local player as the session describes them; see {@link #keepOwnSkinWarm()}. */
+    private static GameProfile ownProfile;
     private static volatile long frameCounter;
     private static Field downloadedImageField;
     private static boolean downloadedImageFieldResolved;
@@ -146,7 +152,8 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
             String oldType = state.type;
             Object oldSource = state.source;
 
-            ISkin skin = resolveSkin(SkinProviderAPI.SKIN.getSkin(PlayerProfile.wrapGameProfile(player.getGameProfile())));
+            ISkin bundle = SkinProviderAPI.SKIN.getSkin(PlayerProfile.wrapGameProfile(player.getGameProfile()));
+            ISkin skin = resolveSkin(bundle);
             // One snapshot: the image and the model type that goes with it must not be read
             // separately, or a provider finishing mid-read pairs a slim image with a wide model.
             ISkin.Loaded loaded = skin == null ? null : skin.loaded();
@@ -156,23 +163,29 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
             // what vanilla would draw on its own, not the location left over from the last frame.
             state.location = null;
             ResourceLocation vanilla = player.getLocationSkin();
-            boolean vanillaHasRealSkin = vanillaSkinReady(vanilla);
+            // All SkinPort came up with is the default Steve/Alex and it has stopped looking, while
+            // vanilla holds the player's own skin: that one is closer to the player. While SkinPort
+            // is still looking, the default skin stands in, so the picture changes only once.
+            boolean gaveUp = skin != null && skin.isFallback() && !(bundle instanceof SkinBundle && ((SkinBundle) bundle).isPending());
+            boolean vanillaInstead = data == null || (gaveUp && vanillaSkinReady(vanilla));
 
-            if (data != null && !(skin.isFallback() && vanillaHasRealSkin))
+            if (!vanillaInstead)
             {
                 // SkinPort supplies the texture, so the model has to describe THAT image.
                 state.location = getOrCreateTexture(data, skin).getLocation();
                 state.type = normalizeType(loaded.type, "default");
                 state.source = skin;
+                state.vanilla = false;
             }
             else
             {
-                // Either SkinPort has nothing yet, or all it has is its built-in Steve/Alex while
-                // vanilla already holds the player's real skin - let vanilla's texture through and
-                // take the model from the same metadata vanilla uses, so a slim model never ends up
-                // pinned onto a wide placeholder (and vice versa) while a download is in flight.
-                state.type = vanillaHasRealSkin ? profileModel(player) : "default";
+                // Vanilla's texture, so vanilla's renderer as well. Its textures are 64x32 - the
+                // old format, which vanilla also cuts every downloaded skin down to - and this
+                // model's 64x64 layout maps them onto the wrong parts of the body: the face ends up
+                // on the chest, the body on the legs.
+                state.type = "default";
                 state.source = null;
+                state.vanilla = true;
             }
 
             if (SkinLog.enabled() && (first || oldSource != state.source || !state.type.equals(oldType) || oldLocation != state.location))
@@ -205,6 +218,16 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         return "vanilla:" + vanilla.getResourcePath() + (vanillaSkinReady(vanilla) ? "(ready)" : "(DOWNLOADING)");
     }
 
+    /**
+     * For the autotest: the ISkin behind the texture this player was last drawn with, or null when
+     * that was vanilla's own texture.
+     */
+    public static Object resolvedSource(AbstractClientPlayer player)
+    {
+        SkinState state = states.get(player.getUniqueID());
+        return state == null ? null : state.source;
+    }
+
     private static ISkin resolveSkin(ISkin skin)
     {
         if (skin instanceof SkinBundle)
@@ -222,7 +245,7 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
      * lands. Trusting the location alone would call that a real skin and pin a slim model onto
      * Steve's arms for as long as the download takes.
      */
-    private static boolean vanillaSkinReady(ResourceLocation location)
+    public static boolean vanillaSkinReady(ResourceLocation location)
     {
         if (location == null || VANILLA_DEFAULT_SKIN.equals(location))
             return false;
@@ -264,18 +287,6 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
                 SkinLog.warn("no BufferedImage field on ThreadDownloadImageData - cannot tell a downloading skin from a finished one");
         }
         return downloadedImageField;
-    }
-
-    /**
-     * The model Mojang publishes for this account. Available as soon as the profile is filled,
-     * which is well before any skin image finishes downloading.
-     */
-    private static String profileModel(AbstractClientPlayer player)
-    {
-        String hint = Shared.getModelHint(PlayerProfile.wrapGameProfile(player.getGameProfile()).getOriginal());
-        if (hint == null)
-            hint = Shared.getModelHint(player.getGameProfile());
-        return normalizeType(hint, "default");
     }
 
     private static String normalizeType(String type, String fallback)
@@ -322,7 +333,8 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         if (renderers.isEmpty())
             setupRenderers(manager);
         SkinState state = resolve(player);
-        result = renderers.getOrDefault(state.type, result);
+        if (!state.vanilla)
+            result = renderers.getOrDefault(state.type, result);
         if (SkinLog.enabled() && state.renderer != result)
         {
             state.renderer = result;
@@ -434,6 +446,38 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         // stale binding came from in the first place.
     }
 
+    /**
+     * Starts on the local player's own skin and cape as soon as the game starts, and keeps them
+     * while no world is loaded: by the time the player first appears, the skin is already here
+     * instead of downloading through the first seconds of the join. The player entity carries a
+     * profile with the same id and name as the session's, which is all the skin cache keys on.
+     */
+    @Override
+    public void keepOwnSkinWarm()
+    {
+        if (ownProfile == null)
+        {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc == null || mc.getSession() == null)
+                return;
+            ownProfile = mc.getSession().func_148256_e();
+            SkinLog.debug("fetching the local player's skin ahead of time: %s (%s)", ownProfile.getName(), ownProfile.getId());
+        }
+        SkinProviderAPI.SKIN.getSkin(PlayerProfile.wrapGameProfile(ownProfile));
+        SkinProviderAPI.CAPE.getSkin(PlayerProfile.wrapGameProfile(ownProfile));
+    }
+
+    @Override
+    public void registerAutoTest()
+    {
+        if (!AutoTest.ENABLED)
+            return;
+        AutoTest test = new AutoTest();
+        MinecraftForge.EVENT_BUS.register(test);
+        FMLCommonHandler.instance().bus().register(test);
+    }
+
+    @Override
     public void registerReloadListener()
     {
         if (reloadListenerRegistered)
@@ -464,6 +508,7 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         {
             frameCounter++;
             registerReloadListener();
+            keepOwnSkinWarm();
             World world = Minecraft.getMinecraft().theWorld;
             if (world != null)
             {

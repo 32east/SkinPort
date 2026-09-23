@@ -30,7 +30,7 @@ public class UserManagedSkinProvider implements ISkinProvider
     @Override
     public ISkin getSkin(IPlayerProfile profile)
     {
-        SkinData skin = new SkinData();
+        SkinData skin = new SkinData("usermanaged");
         if (_filter != null)
             skin.setSkinFilter(_filter);
         SharedPool.execute(() -> {

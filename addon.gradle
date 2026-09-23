@@ -7,3 +7,30 @@ sourceSets {
         }
     }
 }
+
+// `./gradlew runClient -Pautotest` boots a flat world and watches the skin pipeline frame by frame from
+// the first frame of the join; see lain.mods.skinport.impl.forge.debug.AutoTest. The report goes to
+// run/client/skinport-autotest.txt, the frame strips and shots to run/client/screenshots/sp-*.png.
+tasks.configureEach { task ->
+    if (task.name.startsWith('runClient') && task instanceof JavaExec) {
+        if (project.hasProperty('autotest')) {
+            task.jvmArgs '-Dskinport.autotest=true', '-Dskinport.debug=true'
+            // Any -Pskinport.autotest.<name>=<value> is handed through, e.g. -Pskinport.autotest.skipRejoin=true
+            project.properties.each { k, v ->
+                if (k.startsWith('skinport.autotest.')) {
+                    task.jvmArgs "-D${k}=${v}"
+                }
+            }
+        }
+    }
+}
+
+tasks.named('test') {
+    // Minecraft's log4j config writes logs/latest.log into the working directory; keep it out of the tree
+    workingDir = layout.buildDirectory.dir('test-run').get().asFile
+    doFirst { workingDir.mkdirs() }
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+    }
+}
